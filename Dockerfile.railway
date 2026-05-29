@@ -33,8 +33,9 @@ FROM ubuntu AS runtime
 WORKDIR /app
 RUN apt-get update && apt-get -y upgrade && apt-get install -y ca-certificates && update-ca-certificates
 COPY --from=builder /app/relay /usr/local/bin/relay
-# Bake in our chain-97 config (NOT in the upstream runtime image).
-COPY relay.yaml /app/relay.yaml
+# Bake in our chain-97 config. relay.yaml is gitignored upstream, so we ship a
+# committed copy (relay.railway.yaml) and place it where the relay expects it.
+COPY relay.railway.yaml /app/relay.yaml
 
 EXPOSE 9119
 # Bind 0.0.0.0 and use Railway's $PORT (falls back to 9119 locally).
