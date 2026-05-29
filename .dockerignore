@@ -29,3 +29,6 @@
 !/migrations
 # include
 !/.sqlx
+
+# include the Railway relay config (COPYed by Dockerfile.railway)
+!relay.railway.yaml
