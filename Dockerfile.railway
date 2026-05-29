@@ -1,0 +1,41 @@
+# Railway image for the BNB-testnet relay. Same multi-stage Rust build as
+# ./Dockerfile, but the runtime stage also bakes in our relay.yaml (chain-97
+# contracts + RPC) and binds 0.0.0.0:$PORT so Railway can route to it.
+#
+# Secrets come from Railway env vars (read by the relay CLI):
+#   RELAY_MNEMONIC            - signer mnemonic (signers pay gas; fund them)
+#   RELAY_FUNDER_SIGNER_KEY   - funder signing key (sponsors user ops)
+#   RELAY_DB_URL              - Railway Postgres (production persistence)
+# The chain RPC + contract addresses live in relay.yaml. For production, set
+# relay.yaml's chain-97 endpoint to a reliable/paid BSC-testnet RPC.
+
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+ARG BUILD_PROFILE=maxperf
+ENV BUILD_PROFILE=$BUILD_PROFILE
+ARG FEATURES=""
+ENV FEATURES=$FEATURES
+RUN apt-get update && apt-get -y upgrade && apt-get install -y libclang-dev pkg-config
+RUN cargo chef cook --profile $BUILD_PROFILE --recipe-path recipe.json
+COPY . .
+ADD migrations migrations
+RUN cargo build --profile $BUILD_PROFILE --features "$FEATURES" --locked --bin relay
+RUN cp /app/target/$BUILD_PROFILE/relay /app/relay
+
+FROM ubuntu AS runtime
+WORKDIR /app
+RUN apt-get update && apt-get -y upgrade && apt-get install -y ca-certificates && update-ca-certificates
+COPY --from=builder /app/relay /usr/local/bin/relay
+# Bake in our chain-97 config (NOT in the upstream runtime image).
+COPY relay.yaml /app/relay.yaml
+
+EXPOSE 9119
+# Bind 0.0.0.0 and use Railway's $PORT (falls back to 9119 locally).
+CMD ["sh", "-c", "exec /usr/local/bin/relay --config /app/relay.yaml --http.addr 0.0.0.0 --http.port ${PORT:-9119}"]
