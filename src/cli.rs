@@ -32,7 +32,12 @@ pub struct Args {
     #[arg(long, value_name = "CONFIG", env = "RELAY_CONFIG", default_value = "relay.yaml")]
     pub config: PathBuf,
     /// The address to serve the RPC on.
-    #[arg(long = "http.addr", value_name = "ADDR", default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST))]
+    // Functor deploy: default to 0.0.0.0 (UNSPECIFIED) so the RPC is reachable
+    // in hosted environments (Railway) even if --http.addr isn't passed. The
+    // CLI value always overrides relay.yaml (see Cli::run with_address), and the
+    // upstream LOCALHOST default left the RPC bound to localhost -> "connection
+    // refused" behind Railway's proxy.
+    #[arg(long = "http.addr", value_name = "ADDR", default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
     pub address: IpAddr,
     /// The port to serve the RPC on.
     #[arg(long = "http.port", value_name = "PORT", default_value_t = 9119)]
