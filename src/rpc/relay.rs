@@ -615,9 +615,15 @@ impl Relay {
         //
         // If the fee has already been specified (multichain inputs only), we only simulate to get
         // asset diffs. Otherwise, we simulate to get the fee.
-        let payment_amount = context.intent_kind.multi_input_fee().unwrap_or(
-            extra_payment + U256::from((payment_per_gas * gas_estimate.tx as f64).ceil()),
-        );
+        let payment_amount = context.intent_kind.multi_input_fee().unwrap_or_else(|| {
+            let gas_cost =
+                extra_payment + U256::from((payment_per_gas * gas_estimate.tx as f64).ceil());
+            // Functor: 30% relay service fee on top of gas reimbursement. The user
+            // pays 1.3x the gas-based cost; the extra 0.3x is the relay's margin,
+            // collected by fee_recipient. Multichain-input intents (the Some branch)
+            // keep their pre-specified fee untouched.
+            gas_cost.saturating_mul(U256::from(130)) / U256::from(100)
+        });
         intent_to_sign.set_payment(payment_amount);
 
         // Find amount of fee token spent by this intent if payed by the user.
