@@ -47,3 +47,8 @@ CLAUDE.local.md
 # direnv
 /.envrc
 .direnv
+
+# local dev artifacts
+relay.local.log
+*.bak
+start-bsc-testnet.sh

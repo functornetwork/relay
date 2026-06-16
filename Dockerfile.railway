@@ -1,0 +1,48 @@
+# Railway image for the BNB-testnet relay. Same multi-stage Rust build as
+# ./Dockerfile, but the runtime stage also bakes in our relay.yaml (chain-97
+# contracts + RPC) and binds 0.0.0.0:$PORT so Railway can route to it.
+#
+# Secrets/config come from Railway env vars:
+#   RELAY_MNEMONIC            - signer mnemonic (signers pay gas; fund them)
+#   RELAY_FUNDER_SIGNER_KEY   - funder signing key (sponsors user ops)
+#   RELAY_DB_URL              - Railway Postgres (production persistence)
+#   RPC_URL_97                - BNB testnet RPC endpoint (chain 97)
+
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+ARG BUILD_PROFILE=maxperf
+ENV BUILD_PROFILE=$BUILD_PROFILE
+ARG FEATURES=""
+ENV FEATURES=$FEATURES
+RUN apt-get update && apt-get -y upgrade && apt-get install -y libclang-dev pkg-config
+RUN cargo chef cook --profile $BUILD_PROFILE --recipe-path recipe.json
+COPY . .
+ADD migrations migrations
+RUN cargo build --profile $BUILD_PROFILE --features "$FEATURES" --locked --bin relay
+RUN cp /app/target/$BUILD_PROFILE/relay /app/relay
+
+FROM ubuntu AS runtime
+WORKDIR /app
+RUN apt-get update && apt-get -y upgrade && apt-get install -y ca-certificates gettext-base && update-ca-certificates
+COPY --from=builder /app/relay /usr/local/bin/relay
+# Bake in our chain-97 config. relay.yaml is gitignored upstream, so we ship a
+# committed copy (relay.railway.yaml) and place it where the relay expects it.
+COPY relay.railway.yaml /app/relay.yaml
+
+EXPOSE 9119
+# Contract addresses are required CLI args (clap: required_unless_present
+# config_only); pass them explicitly (they're public). relay.yaml still
+# supplies the chain RPC, assets, fee recipient, and pricefeed. Secrets
+# (RELAY_MNEMONIC, RELAY_FUNDER_SIGNER_KEY) are read from env. Bind 0.0.0.0:$PORT.
+# Single line (no backslash continuations) so every flag — crucially
+# --http.addr 0.0.0.0 — reaches the binary. The CLI address default is
+# 127.0.0.1 and it ALWAYS overrides relay.yaml, so this flag must land or the
+# RPC binds localhost and Railway gets "connection refused".
+CMD ["sh", "-c", "envsubst < /app/relay.yaml > /app/relay.runtime.yaml && exec /usr/local/bin/relay --config /app/relay.runtime.yaml --orchestrator 0xcb5CEf3C54aa90e9A7ad602A258D3d360cC862B9 --delegation-proxy 0x4F4ddE38Da9F8AbBb96C48cA520b992D4bADc3D6 --simulator 0x3006de101E96e85272d5B5Ad07A9738fa7678008 --funder 0xb248602EAadd9c3e2Db4575C4e4d58003b7a2740 --escrow 0xCd075ceb5Cd463a9233a8085fc915767139F655c --fee-recipient 0x20E8551E9B458AE2a92aFBDE787dD76e3702833f --constant-rate 1 --quote-ttl 120 --http.addr 0.0.0.0 --http.port ${PORT:-9119}"]
