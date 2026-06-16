@@ -8,8 +8,7 @@ server:
   max_connections: 5000
 chains:
   97:
-    # Production: replace with a reliable/paid BSC-testnet RPC.
-    endpoint: "https://bsc-testnet.bnbchain.org"
+    endpoint: "${RPC_URL_97}"
     signers:
       num_signers: 3
     assets:
